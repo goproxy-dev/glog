@@ -81,11 +81,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // severity identifies the sort of log: info, warning etc. It also implements
@@ -805,6 +807,7 @@ type syncBuffer struct {
 	file   *os.File
 	sev    severity
 	nbytes uint64 // The number of bytes written to this file
+	today  uint16 // The uint16 value of current date
 }
 
 func (sb *syncBuffer) Sync() error {
@@ -812,6 +815,13 @@ func (sb *syncBuffer) Sync() error {
 }
 
 func (sb *syncBuffer) Write(p []byte) (n int, err error) {
+	if DailyRolling {
+		if sb.today != *(*uint16)(unsafe.Pointer(&p[3])) {
+			if err := sb.rotateFile(time.Now()); err != nil {
+				sb.logger.exit(err)
+			}
+		}
+	}
 	if sb.nbytes+uint64(len(p)) >= MaxSize {
 		if err := sb.rotateFile(time.Now()); err != nil {
 			sb.logger.exit(err)
@@ -830,6 +840,37 @@ func (sb *syncBuffer) rotateFile(now time.Time) error {
 	if sb.file != nil {
 		sb.Flush()
 		sb.file.Close()
+		if DailyRolling && sb.file.Name() != os.DevNull {
+			fname := sb.file.Name()
+			if Backups > 0 {
+				var newpath string
+				if p := []byte(now.Format("02")); *(*uint16)(unsafe.Pointer(&p[0])) == sb.today {
+					// rotate by size
+					newpath = fname + now.Format(".20060102T150405")
+				} else {
+					// rotate by time
+					newpath = fname + now.Add(-24*time.Hour).Format(".20060102")
+				}
+				os.Rename(fname, newpath)
+			}
+			if files, _ := filepath.Glob(fname + ".*"); len(files) > Backups {
+				sort.Slice(files, func(i, j int) bool {
+					a, b := files[i], files[j]
+					n := len(a)
+					if len(b) < n {
+						n = len(b)
+					}
+					if r := strings.Compare(a[:n], b[:n]); r != 0 {
+						return r < 0
+					} else {
+						return strings.Compare(a, b) > 0
+					}
+				})
+				for i := 0; i < len(files)-Backups; i++ {
+					os.Remove(files[i])
+				}
+			}
+		}
 	}
 	var err error
 	sb.file, _, err = create(severityName[sb.sev], now)
@@ -839,6 +880,16 @@ func (sb *syncBuffer) rotateFile(now time.Time) error {
 	}
 
 	sb.Writer = bufio.NewWriterSize(sb.file, bufferSize)
+
+	if DailyRolling {
+		p := []byte(now.Format("02"))
+		sb.today = *(*uint16)(unsafe.Pointer(&p[0]))
+		if fi, _ := sb.file.Stat(); fi != nil {
+			sb.nbytes = uint64(fi.Size())
+		}
+		// skip header if daily rolling
+		return nil
+	}
 
 	// Write header.
 	var buf bytes.Buffer

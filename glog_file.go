@@ -33,6 +33,12 @@ import (
 // MaxSize is the maximum size of a log file in bytes.
 var MaxSize uint64 = 1024 * 1024 * 1800
 
+// DailyRolling to rotate log files daily.
+var DailyRolling bool = false
+
+// Backups to keep around resulting from log file rotation.
+var Backups int = 7
+
 // logDirs lists the candidate directories for new log files.
 var logDirs []string
 
@@ -111,11 +117,23 @@ func create(tag string, t time.Time) (f *os.File, filename string, err error) {
 	var lastErr error
 	for _, dir := range logDirs {
 		fname := filepath.Join(dir, name)
-		f, err := os.Create(fname)
+		if DailyRolling {
+			switch tag {
+			case "INFO":
+				fname = filepath.Join(dir, program+".log")
+			default:
+				fname = os.DevNull
+			}
+			f, err = os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		} else {
+			f, err = os.Create(fname)
+		}
 		if err == nil {
-			symlink := filepath.Join(dir, link)
-			os.Remove(symlink)        // ignore err
-			os.Symlink(name, symlink) // ignore err
+			if !DailyRolling {
+				symlink := filepath.Join(dir, link)
+				os.Remove(symlink)        // ignore err
+				os.Symlink(name, symlink) // ignore err
+			}
 			return f, fname, nil
 		}
 		lastErr = err
