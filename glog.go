@@ -682,7 +682,11 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		os.Stderr.Write([]byte("ERROR: logging before flag.Parse: "))
 		os.Stderr.Write(data)
 	} else if l.toStderr {
-		os.Stderr.Write(data)
+		if pipeStderr {
+			os.Stderr.Write(data)
+		} else {
+			WriteFileWithColor(os.Stderr, data, s)
+		}
 	} else {
 		if alsoToStderr || l.alsoToStderr || s >= l.stderrThreshold.get() {
 			os.Stderr.Write(data)
@@ -882,6 +886,7 @@ func (sb *syncBuffer) rotateFile(now time.Time) error {
 	sb.Writer = bufio.NewWriterSize(sb.file, bufferSize)
 
 	if DailyRolling {
+		RedirectStderrTo(sb.file)
 		p := []byte(now.Format("02"))
 		sb.today = *(*uint16)(unsafe.Pointer(&p[0]))
 		if fi, _ := sb.file.Stat(); fi != nil {

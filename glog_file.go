@@ -39,6 +39,9 @@ var DailyRolling bool = false
 // Backups to keep around resulting from log file rotation.
 var Backups int = 7
 
+// os.Stderr is redirect to pipe/file.
+var pipeStderr bool = !IsTerminal(os.Stderr.Fd())
+
 // logDirs lists the candidate directories for new log files.
 var logDirs []string
 
