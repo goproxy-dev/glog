@@ -820,7 +820,13 @@ func (sb *syncBuffer) Sync() error {
 
 func (sb *syncBuffer) Write(p []byte) (n int, err error) {
 	if DailyRolling {
-		if sb.today != *(*uint16)(unsafe.Pointer(&p[3])) {
+		var needRoll bool
+		if p[0] == '{' {
+			needRoll = *(*uint16)(unsafe.Pointer(&p[17])) != sb.today
+		} else {
+			needRoll = *(*uint16)(unsafe.Pointer(&p[3])) != sb.today
+		}
+		if needRoll {
 			if err := sb.rotateFile(time.Now()); err != nil {
 				sb.logger.exit(err)
 			}
